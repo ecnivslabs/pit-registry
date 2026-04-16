@@ -1,6 +1,6 @@
 # pit-registry
 
-Package index for the [Olive programming language](https://github.com/olive-language/olive).
+Package index for the [Olive programming language](https://github.com/ecnivs-labs/olive).
 
 ## Format
 
