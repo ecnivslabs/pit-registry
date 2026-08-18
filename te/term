@@ -2,3 +2,4 @@
 {"name":"term","vers":"0.1.1","deps":[],"cksum":"38af860e2d3deda09994f19e30dd6a3166963f52a0c82426eaa1180cff2ac681","dl":"https://github.com/vinceswu/term/releases/download/term-0.1.1/term.pit.zst","yanked":false,"olive_req":"0.42.4"}
 {"name":"term","vers":"0.1.2","deps":[],"cksum":"c709d0c50fae8ff27f32f81d1c34821dc7fcc71a7ec0f7352202be4b82b3d57e","dl":"https://github.com/vinceswu/term/releases/download/term-0.1.2/term.pit.zst","yanked":false,"olive_req":"0.42.4"}
 {"name":"term","vers":"0.1.3","deps":[],"cksum":"0e46a224de979914539a856e94195c60fa792090e5f057b64eae70153424bcdb","dl":"https://github.com/vinceswu/term/releases/download/term-0.1.3/term.pit.zst","yanked":false,"olive_req":"0.42.4"}
+{"name":"term","vers":"0.1.4","deps":[],"cksum":"842b216430e90f10c7841829f676730caacc851958ccd0876ed3331b9c0c94b4","dl":"https://github.com/vinceswu/term/releases/download/term-0.1.4/term.pit.zst","yanked":false,"olive_req":"0.42.4"}
