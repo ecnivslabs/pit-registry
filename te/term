@@ -1,1 +1,2 @@
 {"name":"term","vers":"0.1.0","deps":[],"cksum":"0d70afa3140f720e3bfc5358d0bd24211ffe3c6d7db2b2cad269353ae6f6f6f3","dl":"https://github.com/vinceswu/term/releases/download/term-0.1.0/term.pit.zst","yanked":false,"olive_req":"0.42.3"}
+{"name":"term","vers":"0.1.1","deps":[],"cksum":"38af860e2d3deda09994f19e30dd6a3166963f52a0c82426eaa1180cff2ac681","dl":"https://github.com/vinceswu/term/releases/download/term-0.1.1/term.pit.zst","yanked":false,"olive_req":"0.42.4"}
