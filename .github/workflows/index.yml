@@ -61,6 +61,7 @@ jobs:
                   "olive_req": latest.get("olive_req"),
                   "deps": latest.get("deps", []),
                   "yanked": latest.get("yanked", False),
+                  "dl": latest.get("dl"),
               })
 
           index = {
