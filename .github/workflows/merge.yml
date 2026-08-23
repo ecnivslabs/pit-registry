@@ -1,0 +1,86 @@
+name: Merge Registry PR
+
+# Runs in base-repo context with a write token, triggered by "Validate PR"
+# completing. Never checks out fork code -- everything it acts on comes from
+# the untrusted job's result artifact, which it downloads and reads only as
+# data. This split (pull_request -> workflow_run) is what lets publish PRs
+# from forks get labeled, commented on, and auto-merged: a `pull_request`
+# workflow itself always gets a read-only token on a fork PR, no matter what
+# `permissions:` it declares.
+
+on:
+  workflow_run:
+    workflows: ["Validate PR"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Download validation result
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ github.event.workflow_run.id }}
+          name: validate-result
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: /tmp/result
+
+      - name: Read result
+        id: result
+        run: |
+          python3 - <<'PYEOF' >> "$GITHUB_OUTPUT"
+          import json
+          d = json.load(open("/tmp/result/result.json"))
+          for k in ("pr_number", "head_sha", "pkg_name", "vers", "is_new"):
+              print(f"{k}={d[k]}")
+          PYEOF
+
+      - name: Verify PR head has not moved since validation
+        env:
+          PR_NUMBER: ${{ steps.result.outputs.pr_number }}
+          EXPECTED_SHA: ${{ steps.result.outputs.head_sha }}
+        run: |
+          ACTUAL_SHA=$(gh pr view "$PR_NUMBER" --repo "${{ github.repository }}" --json headRefOid --jq .headRefOid)
+          if [[ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]]; then
+            echo "::error::PR head moved since validation ($EXPECTED_SHA -> $ACTUAL_SHA) -- skipping, will re-validate on the new commit"
+            exit 1
+          fi
+
+      - name: Ensure manual-review label exists
+        if: steps.result.outputs.is_new == 'true'
+        run: |
+          gh label create "manual-review" \
+            --color "e11d48" \
+            --description "New package  -  requires maintainer review" \
+            --repo "${{ github.repository }}" 2>/dev/null || true
+
+      - name: Label new package for manual review
+        if: steps.result.outputs.is_new == 'true'
+        env:
+          PR_NUMBER: ${{ steps.result.outputs.pr_number }}
+          PKG_NAME:  ${{ steps.result.outputs.pkg_name }}
+          VERS:      ${{ steps.result.outputs.vers }}
+        run: |
+          gh pr edit "$PR_NUMBER" --repo "${{ github.repository }}" --add-label "manual-review"
+          gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" --body "$(cat <<EOF
+          **New package detected:** \`$PKG_NAME@$VERS\`
+
+          Schema and checksum passed. Flagged for manual review to prevent name-squatting.
+          A maintainer will review and merge (or reject) this PR shortly.
+          EOF
+          )"
+
+      - name: Auto-merge existing-package PR
+        if: steps.result.outputs.is_new == 'false'
+        env:
+          PR_NUMBER: ${{ steps.result.outputs.pr_number }}
+        run: |
+          gh pr merge "$PR_NUMBER" --repo "${{ github.repository }}" --squash --delete-branch

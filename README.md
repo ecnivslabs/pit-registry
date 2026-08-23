@@ -21,6 +21,7 @@ The file contains one JSON object per line, with one line per published version:
 | `cksum` | BLAKE3 hex digest of the `.pit.zst` archive |
 | `dl` | Direct download URL of the `.pit.zst` asset |
 | `yanked` | Set to `true` to warn users (version not deleted) |
+| `olive_req` | Optional. Minimum Olive compiler version this version requires |
 
 ## Publishing
 
