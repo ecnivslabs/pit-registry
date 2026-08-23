@@ -1,0 +1,92 @@
+name: Generate Index
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '[a-z0-9][a-z0-9]/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate index.json
+        run: |
+          mkdir -p _site
+          python3 <<'PYEOF'
+          import json, os, glob, datetime
+
+          pods = []
+          for path in sorted(glob.glob('*/*')):
+              prefix, name = path.split('/', 1)
+              # Package files live at {2-char-prefix}/{name}; skip anything else
+              # that might land at a two-segment path (there is nothing else
+              # today, but this keeps a future addition from being misread).
+              if len(prefix) != 2 or '/' in name:
+                  continue
+
+              records = []
+              with open(path) as f:
+                  for lineno, line in enumerate(f, 1):
+                      line = line.strip()
+                      if not line:
+                          continue
+                      try:
+                          records.append(json.loads(line))
+                      except json.JSONDecodeError as e:
+                          print(f"::warning::Skipping malformed line {lineno} in {path}: {e}")
+              if not records:
+                  continue
+
+              def vkey(record):
+                  return [int(p) if p.isdigit() else p for p in record["vers"].split(".")]
+
+              latest = max(records, key=vkey)
+              pods.append({
+                  "name": name,
+                  "vers": latest["vers"],
+                  "versionCount": len(records),
+                  "olive_req": latest.get("olive_req"),
+                  "deps": latest.get("deps", []),
+                  "yanked": latest.get("yanked", False),
+              })
+
+          index = {
+              "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+              "pods": pods,
+          }
+
+          with open("_site/index.json", "w") as f:
+              json.dump(index, f, indent=2)
+              f.write("\n")
+
+          print(f"Indexed {len(pods)} pod(s)")
+          PYEOF
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
