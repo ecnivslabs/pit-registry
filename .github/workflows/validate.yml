@@ -6,8 +6,8 @@ on:
     types: [opened, synchronize, reopened]
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
+  pull-requests: read
 
 jobs:
   validate:
@@ -22,13 +22,6 @@ jobs:
 
       - name: Install blake3
         run: pip install blake3 --quiet
-
-      - name: Ensure manual-review label exists
-        run: |
-          gh label create "manual-review" \
-            --color "e11d48" \
-            --description "New package  -  requires maintainer review" \
-            --repo "${{ github.repository }}" 2>/dev/null || true
 
       # ── 1. Exactly one registry file changed ─────────────────────────────────
       - name: Check single registry file changed
@@ -57,33 +50,61 @@ jobs:
           echo "pkg_file=$PKG_FILE" >> "$GITHUB_OUTPUT"
           echo "pkg_name=$pkg_name" >> "$GITHUB_OUTPUT"
 
-      # ── 2. Exactly one new JSON line, zero removed lines ─────────────────────
-      - name: Extract new line
+      # ── 2. Exactly one new record, zero removed ───────────────────────────────
+      # Compares parsed JSON objects rather than raw diff lines. pit publish
+      # writes registry files with no trailing newline, so a raw line-diff
+      # makes every append look like "remove the old last line (no \n),
+      # re-add it (with \n), add the new line" -- 2 additions, not 1. Parsing
+      # both sides and diffing the resulting record sets sidesteps the
+      # newline question entirely.
+      - name: Extract new record
         id: entry
         env:
           PKG_FILE: ${{ steps.files.outputs.pkg_file }}
         run: |
           BASE="${{ github.base_ref }}"
 
-          ADDED=$(git diff "origin/$BASE"...HEAD -- "$PKG_FILE" \
-            | grep '^+[^+]' | sed 's/^+//' | grep -v '^[[:space:]]*$')
-          REMOVED=$(git diff "origin/$BASE"...HEAD -- "$PKG_FILE" \
-            | grep '^-[^-]' | sed 's/^-//' | grep -v '^[[:space:]]*$')
+          git show "origin/$BASE:$PKG_FILE" > /tmp/base_file.txt 2>/dev/null || : > /tmp/base_file.txt
+          cp "$PKG_FILE" /tmp/head_file.txt
 
-          A_COUNT=$(printf '%s\n' "$ADDED" | grep -c '[^[:space:]]' || true)
-          R_COUNT=$(printf '%s\n' "$REMOVED" | grep -c '[^[:space:]]' || true)
+          python3 <<'PYEOF'
+          import json, sys
 
-          if [[ "$A_COUNT" -ne 1 ]]; then
-            echo "::error::PR must add exactly 1 JSON line (found: $A_COUNT)"
-            exit 1
-          fi
-          if [[ "$R_COUNT" -ne 0 ]]; then
-            echo "::error::PR must not remove existing lines (removed: $R_COUNT)"
-            exit 1
-          fi
+          def load_records(path):
+              records = {}
+              with open(path) as f:
+                  for lineno, line in enumerate(f, 1):
+                      line = line.strip()
+                      if not line:
+                          continue
+                      try:
+                          d = json.loads(line)
+                      except json.JSONDecodeError as e:
+                          print(f"::error::Invalid JSON on line {lineno} of {path}: {e}")
+                          sys.exit(1)
+                      records[json.dumps(d, sort_keys=True)] = line
+              return records
+
+          base_records = load_records("/tmp/base_file.txt")
+          head_records = load_records("/tmp/head_file.txt")
+
+          added = [line for key, line in head_records.items() if key not in base_records]
+          removed = [line for key, line in base_records.items() if key not in head_records]
+
+          if len(added) != 1:
+              print(f"::error::PR must add exactly 1 JSON record (found: {len(added)})")
+              sys.exit(1)
+          if len(removed) != 0:
+              print(f"::error::PR must not remove or modify existing records (changed: {len(removed)})")
+              sys.exit(1)
+
+          with open("/tmp/added_line.txt", "w") as out:
+              out.write(added[0])
+          PYEOF
 
           echo "json_line<<__EOF__" >> "$GITHUB_OUTPUT"
-          printf '%s\n' "$ADDED" >> "$GITHUB_OUTPUT"
+          cat /tmp/added_line.txt >> "$GITHUB_OUTPUT"
+          echo "" >> "$GITHUB_OUTPUT"
           echo "__EOF__" >> "$GITHUB_OUTPUT"
 
       # ── 3. Schema validation + duplicate version check ────────────────────────
@@ -229,27 +250,35 @@ jobs:
             echo "is_new=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # ── 6a. New package: label and comment ───────────────────────────────────
-      - name: Label new package for manual review
-        if: steps.ownership.outputs.is_new == 'true'
+      # ── 6. Hand off to the trusted merge workflow ─────────────────────────────
+      # This job runs on `pull_request` from a fork with a read-only token by
+      # design (GitHub forces that on fork PRs regardless of the `permissions:`
+      # block above), so it cannot label, comment, or merge. It writes its
+      # verdict to an artifact; merge.yml (triggered by `workflow_run`, running
+      # in base-repo context with a write token, never checking out fork code)
+      # reads it and acts.
+      - name: Write result artifact
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA:  ${{ github.event.pull_request.head.sha }}
           PKG_NAME:  ${{ steps.files.outputs.pkg_name }}
           VERS:      ${{ steps.schema.outputs.vers }}
+          IS_NEW:    ${{ steps.ownership.outputs.is_new }}
         run: |
-          gh pr edit "$PR_NUMBER" --add-label "manual-review"
-          gh pr comment "$PR_NUMBER" --body "$(cat <<EOF
-          **New package detected:** \`$PKG_NAME@$VERS\`
-
-          Schema and checksum passed. Flagged for manual review to prevent name-squatting.
-          A maintainer will review and merge (or reject) this PR shortly.
+          mkdir -p /tmp/result
+          cat > /tmp/result/result.json <<EOF
+          {
+            "pr_number": ${PR_NUMBER},
+            "head_sha": "${HEAD_SHA}",
+            "pkg_name": "${PKG_NAME}",
+            "vers": "${VERS}",
+            "is_new": "${IS_NEW}"
+          }
           EOF
-          )"
 
-      # ── 6b. Existing package + owner match: auto-merge ───────────────────────
-      - name: Auto-merge
-        if: steps.ownership.outputs.is_new == 'false'
-        env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          gh pr merge "$PR_NUMBER" --squash --delete-branch
+      - name: Upload result artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: validate-result
+          path: /tmp/result/result.json
+          retention-days: 1
