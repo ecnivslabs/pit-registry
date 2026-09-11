@@ -142,10 +142,12 @@ jobs:
           if d.get("dl") and not d["dl"].startswith("https://"):
               errors.append("dl must use https")
 
-          # Check for duplicate version in existing file
-          if os.path.isfile(pkg_file):
+          # Check for duplicate version against the pre-PR file. Must use the
+          # base snapshot, not pkg_file (HEAD) -- HEAD already contains the
+          # new record, so comparing against it always matches itself.
+          if os.path.isfile("/tmp/base_file.txt"):
               new_vers = d.get("vers", "")
-              with open(pkg_file) as f:
+              with open("/tmp/base_file.txt") as f:
                   for lineno, existing in enumerate(f, 1):
                       existing = existing.strip()
                       if not existing:
