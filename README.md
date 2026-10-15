@@ -75,6 +75,9 @@ Validation runs on `pull_request_target` using scripts checked out from the
 trusted base commit. PR commits are fetched and inspected as Git objects only.
 No PR code, hooks, configuration, or validation artifacts execute with write
 credentials. The merge request specifies the exact validated PR head commit.
+After an automatic merge, validation explicitly dispatches `index.yml` to refresh
+the website index. GitHub does not trigger push workflows for changes made by the
+default workflow token.
 
 ## Validation
 

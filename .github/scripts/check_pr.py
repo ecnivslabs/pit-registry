@@ -110,6 +110,16 @@ def process(github, event, repository):
     print(
         f"Merged {candidate.record['name']}@{candidate.record['vers']} from {source['full_name']}."
     )
+    try:
+        github.api(
+            f"repos/{repository}/actions/workflows/index.yml/dispatches",
+            method="POST",
+            data={"ref": pr["base"]["ref"]},
+        )
+    except (RuntimeError, OSError, subprocess.SubprocessError) as error:
+        raise RuntimeError(
+            f"Publishing PR was merged, but registry website index refresh failed: {error}"
+        ) from error
 
 
 def main():

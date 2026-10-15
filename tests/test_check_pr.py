@@ -88,9 +88,30 @@ class WorkflowTests(unittest.TestCase):
                     "repos/owner/registry/pulls/12/merge",
                     "PUT",
                     {"sha": "b" * 40, "merge_method": "squash"},
-                )
+                ),
+                (
+                    "repos/owner/registry/actions/workflows/index.yml/dispatches",
+                    "POST",
+                    {"ref": "master"},
+                ),
             ],
         )
+
+    def test_index_dispatch_failure_reports_that_pr_was_already_merged(self):
+        original_api = self.api
+
+        def api(path, method="GET", data=None):
+            if path.endswith("/dispatches"):
+                raise RuntimeError("dispatch unavailable")
+            return original_api(path, method, data)
+
+        with (
+            patch.object(self, "api", side_effect=api),
+            self.assertRaisesRegex(RuntimeError, "was merged.*index refresh failed"),
+        ):
+            self.run_process()
+        self.assertEqual(len(self.mutations), 1)
+        self.assertEqual(self.mutations[0][1], "PUT")
 
     def test_new_pod_is_only_labeled_never_auto_merged(self):
         self.base.clear()
