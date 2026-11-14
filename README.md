@@ -1,4 +1,5 @@
-# pit-registry
+<h1 align="center">pit-registry</h1>
+<p align="center"><em>The package index for Olive.</em></p>
 
 Package index for the [Olive programming language](https://github.com/ecnivslabs/olive).
 
